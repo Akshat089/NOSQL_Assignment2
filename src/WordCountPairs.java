@@ -1,0 +1,121 @@
+import java.io.BufferedReader;
+import java.io.FileReader;
+import java.io.IOException;
+import java.net.URI;
+import java.util.HashSet;
+import java.util.Set;
+
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.IntWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Job;
+import org.apache.hadoop.mapreduce.Mapper;
+import org.apache.hadoop.mapreduce.Reducer;
+import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
+import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
+
+public class WordCountPairs {
+
+    public static class PairsMapper extends Mapper<Object, Text, Text, IntWritable> {
+        private final static IntWritable one = new IntWritable(1);
+        private Text pair = new Text();
+        private Set<String> top50 = new HashSet<>();
+        private int d;
+
+        @Override
+        protected void setup(Context context) throws IOException, InterruptedException {
+            // Get distance 'd'
+            d = context.getConfiguration().getInt("neighbor.distance", 1);
+            
+            // Load the Top 50 words from Task 1a (passed via Distributed Cache)
+            URI[] cacheFiles = context.getCacheFiles();
+            if (cacheFiles != null && cacheFiles.length > 0) {
+                // We use the first file in the cache
+                BufferedReader reader = new BufferedReader(new FileReader(new Path(cacheFiles[0].getPath()).getName()));
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    // Split to get just the word if the file is "word count"
+                    String[] parts = line.split("\\s+");
+                    if (parts.length > 0) top50.add(parts[0].trim().toLowerCase());
+                }
+                reader.close();
+            }
+        }
+
+        @Override
+        public void map(Object key, Text value, Context context) throws IOException, InterruptedException {
+            // Tokenize and clean
+            String[] tokens = value.toString().toLowerCase().split("[^a-z]+");
+
+            for (int i = 0; i < tokens.length; i++) {
+                String word1 = tokens[i];
+                if (word1.isEmpty() || !top50.contains(word1)) continue;
+
+                // Look at the next 'd' words
+                for (int j = i + 1; j < Math.min(i + d + 1, tokens.length); j++) {
+                    String word2 = tokens[j];
+                    
+                    // Filter: Only count if word2 is also in Top 50 and not the same word
+                    if (word2.isEmpty() || !top50.contains(word2) || word1.equals(word2)) continue;
+
+                    // Create symmetric pair (alphabetical order)
+                    String joint = (word1.compareTo(word2) < 0) ? word1 + "," + word2 : word2 + "," + word1;
+                    
+                    pair.set(joint);
+                    context.write(pair, one);
+                }
+            }
+        }
+    }
+
+    public static class IntSumReducer extends Reducer<Text, IntWritable, Text, IntWritable> {
+        private IntWritable result = new IntWritable();
+        @Override
+        public void reduce(Text key, Iterable<IntWritable> values, Context context) throws IOException, InterruptedException {
+            int sum = 0;
+            for (IntWritable val : values) sum += val.get();
+            result.set(sum);
+            context.write(key, result);
+        }
+    }
+
+    public static void main(String[] args) throws Exception {
+        if (args.length < 4) {
+            System.err.println("Usage: WordCountPairs <input> <output> <distance> <top50file_path>");
+            System.exit(-1);
+        }
+
+        Configuration conf = new Configuration();
+        conf.setInt("neighbor.distance", Integer.parseInt(args[2]));
+
+        Job job = Job.getInstance(conf, "co-occurring word matrix");
+        job.setJarByClass(WordCountPairs.class);
+        job.setMapperClass(PairsMapper.class);
+        job.setCombinerClass(IntSumReducer.class); 
+        job.setReducerClass(IntSumReducer.class);
+
+        job.setOutputKeyClass(Text.class);
+        job.setOutputValueClass(IntWritable.class);
+
+        FileInputFormat.addInputPath(job, new Path(args[0]));
+        FileOutputFormat.setOutputPath(job, new Path(args[1]));
+        
+        // Add the top 50 words file to distributed cache
+        job.addCacheFile(new Path(args[3]).toUri());
+
+        long startTime = System.currentTimeMillis();
+        boolean success = job.waitForCompletion(true);
+        long endTime = System.currentTimeMillis();
+        
+        if (success) {
+            System.out.println("=========================================");
+            System.out.println("JOB SUCCESSFUL");
+            System.out.println("DISTANCE (d): " + args[2]);
+            System.out.println("RUNTIME: " + (endTime - startTime) / 1000.0 + " seconds");
+            System.out.println("=========================================");
+        }
+
+        System.exit(success ? 0 : 1);
+    }
+}
