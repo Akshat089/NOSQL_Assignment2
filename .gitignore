@@ -1,2 +1,19 @@
 input/Wikipedia-EN-20120601_ARTICLES.tar.gz
 input/Wikipedia-EN-20120601_ARTICLES/
+
+# Java build artifacts
+bin/
+out/
+target/
+
+# Executables and packaged binaries
+*.class
+*.jar
+*.war
+*.ear
+*.exe
+*.out
+
+# Common runtime outputs
+wordcount_output.txt
+top50_only.txt

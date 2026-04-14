@@ -2,9 +2,7 @@ import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.IOException;
 import java.net.URI;
-import java.util.ArrayList;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Set;
 
 import org.apache.hadoop.conf.Configuration;
@@ -16,64 +14,63 @@ import org.apache.hadoop.mapreduce.Mapper;
 import org.apache.hadoop.mapreduce.Reducer;
 import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
+import org.apache.hadoop.util.StringUtils;
 
-public class WordCountPairs {
+public class WordCount2 {
 
-    public static class PairsMapper extends Mapper<Object, Text, Text, IntWritable> {
+    public static class TokenizerMapper extends Mapper<Object, Text, Text, IntWritable> {
+
         private final static IntWritable one = new IntWritable(1);
-        private Text pair = new Text();
-        private Set<String> top50 = new HashSet<>();
-        private int d;
+        private Text word = new Text();
+        private boolean caseSensitive = false;
+        private Set<String> patternsToSkip = new HashSet<String>();
 
         @Override
-        protected void setup(Context context) throws IOException, InterruptedException {
-            d = context.getConfiguration().getInt("neighbor.distance", 1);
+        public void setup(Context context) throws IOException, InterruptedException {
+            Configuration conf = context.getConfiguration();
+            caseSensitive = conf.getBoolean("wordcount.case.sensitive", false);
+            
+            // Correct way to access Cache Files in setup
+            if (conf.getBoolean("wordcount.skip.patterns", false)) {
+                URI[] patternsURIs = context.getCacheFiles();
+                for (URI patternsURI : patternsURIs) {
+                    Path patternsPath = new Path(patternsURI.getPath());
+                    String patternsFileName = patternsPath.getName();
+                    parseSkipFile(patternsFileName);
+                }
+            }
+        }
 
-            URI[] cacheFiles = context.getCacheFiles();
-            if (cacheFiles != null && cacheFiles.length > 0) {
-                BufferedReader reader = new BufferedReader(
-                    new FileReader(new Path(cacheFiles[0].getPath()).getName())
-                );
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    String[] parts = line.split("\\s+");
-                    if (parts.length > 0 && !parts[0].trim().isEmpty()) {
-                        top50.add(parts[0].trim().toLowerCase());
-                    }
+        private void parseSkipFile(String fileName) {
+            try {
+                BufferedReader reader = new BufferedReader(new FileReader(fileName));
+                String pattern;
+                while ((pattern = reader.readLine()) != null) {
+                    // Add stop-words to set (normalized to lowercase)
+                    patternsToSkip.add(pattern.trim().toLowerCase());
                 }
                 reader.close();
+            } catch (IOException ioe) {
+                System.err.println("Error parsing stop-word file: " + StringUtils.stringifyException(ioe));
             }
         }
 
         @Override
-        public void map(Object key, Text value, Context context)
-                throws IOException, InterruptedException {
-
-            String[] rawTokens = value.toString().toLowerCase().split("[^a-z]+");
-
-            // Keep ALL real words for correct distance counting
-            List<String> tokens = new ArrayList<>();
-            for (String t : rawTokens) {
-                if (!t.isEmpty()) tokens.add(t);
+        public void map(Object key, Text value, Context context) throws IOException, InterruptedException {
+            String line = value.toString();
+            if (!caseSensitive) {
+                line = line.toLowerCase();
             }
 
-            for (int i = 0; i < tokens.size(); i++) {
-                String word1 = tokens.get(i);
-                if (!top50.contains(word1)) continue;
-
-                // Look at next d actual words
-                for (int j = i + 1; j < Math.min(i + d + 1, tokens.size()); j++) {
-                    String word2 = tokens.get(j);
-
-                    if (!top50.contains(word2) || word1.equals(word2)) continue;
-
-                    // Alphabetical order for symmetric pair
-                    String joint = (word1.compareTo(word2) < 0)
-                        ? word1 + "," + word2
-                        : word2 + "," + word1;
-
-                    pair.set(joint);
-                    context.write(pair, one);
+            // Split by non-word characters
+            String[] tokens = line.split("[^a-zA-Z0-9]+");
+            for (String token : tokens) {
+                if (token.isEmpty()) continue;
+                
+                // CHECK: Only emit if it's NOT a stop-word
+                if (!patternsToSkip.contains(token.toLowerCase())) {
+                    word.set(token);
+                    context.write(word, one);
                 }
             }
         }
@@ -86,47 +83,41 @@ public class WordCountPairs {
         public void reduce(Text key, Iterable<IntWritable> values, Context context)
                 throws IOException, InterruptedException {
             int sum = 0;
-            for (IntWritable val : values) sum += val.get();
+            for (IntWritable val : values) {
+                sum += val.get();
+            }
             result.set(sum);
             context.write(key, result);
         }
     }
 
     public static void main(String[] args) throws Exception {
-        if (args.length < 4) {
-            System.err.println("Usage: WordCountPairs <input> <output> <distance> <top50file>");
-            System.exit(-1);
-        }
-
         Configuration conf = new Configuration();
-        conf.setInt("neighbor.distance", Integer.parseInt(args[2]));
+        Job job = Job.getInstance(conf, "wordcount2");
 
-        Job job = Job.getInstance(conf, "co-occurring word pairs d=" + args[2]);
-        job.setJarByClass(WordCountPairs.class);
-        job.setMapperClass(PairsMapper.class);
-        job.setCombinerClass(IntSumReducer.class);
+        job.setJarByClass(WordCount2.class);
+        job.setMapperClass(TokenizerMapper.class);
+        
+        // ENABLED: Local aggregation (Combiner) for better performance
+        job.setCombinerClass(IntSumReducer.class); 
         job.setReducerClass(IntSumReducer.class);
 
         job.setOutputKeyClass(Text.class);
         job.setOutputValueClass(IntWritable.class);
 
+        // Parsing arguments for skip patterns and case sensitivity
+        for (int i = 0; i < args.length; ++i) {
+            if ("-skippatterns".equals(args[i])) {
+                job.getConfiguration().setBoolean("wordcount.skip.patterns", true);
+                job.addCacheFile(new Path(args[++i]).toUri());
+            } else if ("-casesensitive".equals(args[i])) {
+                job.getConfiguration().setBoolean("wordcount.case.sensitive", true);
+            }
+        }
+
         FileInputFormat.addInputPath(job, new Path(args[0]));
         FileOutputFormat.setOutputPath(job, new Path(args[1]));
 
-        job.addCacheFile(new Path(args[3]).toUri());
-
-        long startTime = System.currentTimeMillis();
-        boolean success = job.waitForCompletion(true);
-        long endTime = System.currentTimeMillis();
-
-        if (success) {
-            System.out.println("=========================================");
-            System.out.println("JOB SUCCESSFUL");
-            System.out.println("DISTANCE (d): " + args[2]);
-            System.out.println("RUNTIME: " + (endTime - startTime) / 1000.0 + " seconds");
-            System.out.println("=========================================");
-        }
-
-        System.exit(success ? 0 : 1);
+        System.exit(job.waitForCompletion(true) ? 0 : 1);
     }
 }

@@ -1,0 +1,12 @@
+{
+  "java.project.sourcePaths": [
+    "src"
+  ],
+  "java.project.outputPath": "bin",
+  "java.project.referencedLibraries": [
+    "/Users/nathanmathew/.m2/repository/org/apache/hadoop/**/*.jar",
+    "/Users/nathanmathew/.m2/repository/org/slf4j/**/*.jar",
+    "/Users/nathanmathew/.m2/repository/org/apache/opennlp/**/*.jar",
+    "lib/**/*.jar"
+  ]
+}

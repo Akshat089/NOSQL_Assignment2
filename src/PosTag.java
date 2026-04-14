@@ -15,7 +15,9 @@ public class PosTag {
 		POSModel model = new POSModelLoader().load(new File("/Users/vinu.venugopal/CloudDrive/NoSQL2023/Assignment-2/JARS/opennlp-en-ud-ewt-pos-1.0-1.9.3.bin")); //Edit path to the pre-trained model file
 		POSTaggerME tagger = new POSTaggerME(model);
 
-		//String line = "Can anyone help me dig through OpenNLP's documentation?";
+		String line = args.length > 0
+				? String.join(" ", args)
+				: "Can anyone help me dig through OpenNLP's documentation?";
 		if (line != null) {
 			SimpleTokenizer tokenizer = SimpleTokenizer.INSTANCE;
 	    	String tokenizedLine[] = tokenizer.tokenize(line); //Tokenize line
