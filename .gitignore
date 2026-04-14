@@ -1,0 +1,16 @@
+# Build outputs
+bin/
+target/
+*.class
+
+# Hadoop output folders
+output/
+*_output/
+
+# OS/editor noise
+.DS_Store
+.vscode/*.log
+
+# Temporary files
+*.tmp
+*.swp

@@ -13,6 +13,13 @@ import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 
 public class TFIDFJob {
 
+    private static String toFileUri(String path) {
+        if (path.contains("://")) {
+            return path;
+        }
+        return new File(path).toURI().toString();
+    }
+
     public static class TFMapper extends Mapper<LongWritable, Text, Text, MapWritable> {
         private Set<String> stopwords = new HashSet<>();
         private Set<String> topTerms = new HashSet<>();
@@ -91,9 +98,11 @@ public class TFIDFJob {
     // Reducer remains the same as your provided version
     public static class TFReducer extends Reducer<Text, MapWritable, Text, Text> {
         private Map<String, Integer> dfMap = new HashMap<>();
+        private int totalDocs;
 
         @Override
         protected void setup(Context context) throws IOException {
+            totalDocs = context.getConfiguration().getInt("tfidf.totalDocs", 10000);
             try (BufferedReader br = new BufferedReader(new FileReader("top100.txt"))) {
                 String line;
                 while ((line = br.readLine()) != null) {
@@ -118,16 +127,24 @@ public class TFIDFJob {
                 String term = entry.getKey();
                 int tf = entry.getValue();
                 int df = dfMap.getOrDefault(term, 1);
-                double score = tf * Math.log(10000.0 /df + 1);
+                double score = tf * Math.log((double) totalDocs / df + 1.0);
                 context.write(key, new Text(term + "\t" + score));
             }
         }
     }
 
     public static void main(String[] args) throws Exception {
+        if (args.length < 4 || args.length > 5) {
+            System.err.println("Usage: TFIDFJob <input> <output> <stopwords-file> <top100-file> [total-docs]");
+            System.exit(-1);
+        }
+
         Configuration conf = new Configuration();
         conf.set("mapreduce.framework.name", "local");
         conf.set("fs.defaultFS", "file:///");
+        if (args.length == 5) {
+            conf.setInt("tfidf.totalDocs", Integer.parseInt(args[4]));
+        }
 
         Job job = Job.getInstance(conf, "TF-IDF Combined Stripes");
         job.setJarByClass(TFIDFJob.class);
@@ -139,10 +156,10 @@ public class TFIDFJob {
         job.setOutputKeyClass(Text.class);
         job.setOutputValueClass(Text.class);
 
-        // Add symlinks using the '#' syntax
-        job.addCacheFile(new URI("file:///mnt/c/Users/dell/IdeaProjects/hadoop/src/stopwords.txt#stopwords.txt"));
-        job.addCacheFile(new URI("file:///mnt/c/Users/dell/IdeaProjects/hadoop/src/top100.txt#top100.txt"));
-        job.addCacheFile(new URI("file:///mnt/c/Users/dell/IdeaProjects/hadoop/src/df.txt#df.txt"));
+        String stopwordsUri = toFileUri(args[2]);
+        String top100Uri = toFileUri(args[3]);
+        job.addCacheFile(new URI(stopwordsUri + "#stopwords.txt"));
+        job.addCacheFile(new URI(top100Uri + "#top100.txt"));
 
         FileInputFormat.addInputPath(job, new Path(args[0]));
         FileOutputFormat.setOutputPath(job, new Path(args[1]));

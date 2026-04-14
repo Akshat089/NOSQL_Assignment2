@@ -13,6 +13,13 @@ import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 
 public class DFJob {
 
+    private static String toFileUri(String path) {
+        if (path.contains("://")) {
+            return path;
+        }
+        return new File(path).toURI().toString();
+    }
+
     public static class DFMapper extends Mapper<LongWritable, Text, Text, Text> {
 
         private Text term = new Text();
@@ -100,8 +107,8 @@ public class DFJob {
 
     public static void main(String[] args) throws Exception {
 
-        if (args.length != 2) {
-            System.err.println("Usage: DFJob <input> <output>");
+        if (args.length != 3) {
+            System.err.println("Usage: DFJob <input> <output> <stopwords-file>");
             System.exit(-1);
         }
 
@@ -121,8 +128,8 @@ public class DFJob {
         job.setOutputKeyClass(Text.class);
         job.setOutputValueClass(IntWritable.class);
 
-        // ✅ cache file
-        job.addCacheFile(new URI("file:///mnt/c/Users/dell/IdeaProjects/hadoop/src/stopwords.txt"));
+        String stopwordsUri = toFileUri(args[2]);
+        job.addCacheFile(new URI(stopwordsUri + "#stopwords.txt"));
 
         FileInputFormat.addInputPath(job, new Path(args[0]));
         FileOutputFormat.setOutputPath(job, new Path(args[1]));
