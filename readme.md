@@ -14,7 +14,7 @@ To efficiently handle large datasets, all input files are **combined into a sing
 # ⚙️ Prerequisites
 
 * Hadoop installed and configured
-* Java (JDK 8+)
+* Java (JDK 17)
 * OpenNLP jar (e.g., `opennlp-tools-1.9.3.jar`)
 * Dataset folder containing multiple `.txt` documents
 
@@ -141,7 +141,7 @@ cp <OUTPUT_TFIDF_FOLDER>/part-r-00000 tfidf.txt
 
 ---
 
-## Output of Part (b)
+## ✅ Output of Part (b)
 
 * `tfidf.txt` containing:
 
@@ -151,23 +151,23 @@ cp <OUTPUT_TFIDF_FOLDER>/part-r-00000 tfidf.txt
 
 ---
 
-# Key Optimization
+# ⚡ Key Optimization
 
 Instead of:
 
 ```text
-Many small files → many map tasks → slow 
+Many small files → many map tasks → slow ❌
 ```
 
 We use:
 
 ```text
-One combined file → few splits → fast 
+One combined file → few splits → fast ✔
 ```
 
 ---
 
-# Notes
+# 🧠 Notes
 
 * Stopwords are removed in both DF and TF-IDF stages
 * Stemming is applied using Porter Stemmer
